@@ -1,27 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Player, BoardState, GameResult } from './types';
 import { createEmptyBoard, isValidMove, getNextOpenRow, dropPiece, checkWin } from './gameLogic';
-import { minimax } from './ai';
+import { getBestMove, SearchStats } from './ai';
 import { Board } from './components/Board';
-import { Trophy, RotateCcw, Cpu, User, Settings2, Info } from 'lucide-react';
+import { Trophy, RotateCcw, Cpu, User, Settings2, Info, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-/**
- * Main Application Component - Connect Four AI
- * Handles game state transitions, player turns, and AI agent execution.
- */
 export default function App() {
-  // --- State Management ---
   const [board, setBoard] = useState<BoardState>(createEmptyBoard());
   const [currentPlayer, setCurrentPlayer] = useState<Player>(Player.HUMAN);
   const [gameResult, setGameResult] = useState<GameResult>({ winner: null, winningCells: null });
-  const [difficulty, setDifficulty] = useState<number>(4); // Search Depth for Minimax
-  const [isComputing, setIsComputing] = useState(false); // Refactored from isThinking
+  const [difficulty, setDifficulty] = useState<number>(4); // max search depth for IDS
+  const [isComputing, setIsComputing] = useState(false);
   const [showProjectDetails, setShowProjectDetails] = useState(false);
+  const [lastStats, setLastStats] = useState<SearchStats | null>(null);
 
-  /**
-   * Resets the game state to initial values.
-   */
+  // Bring everything back to a clean state without reloading the page.
   const resetGame = () => {
     setBoard(createEmptyBoard());
     setCurrentPlayer(Player.HUMAN);
@@ -29,10 +23,9 @@ export default function App() {
     setIsComputing(false);
   };
 
-  /**
-   * Orchestrates the human player's move.
-   * Updates board state and triggers the AI agent.
-   */
+  // Handle the human player's turn. We validate the move, update the board,
+  // check for an immediate win, and if neither player has won yet we hand
+  // control over to the AI by updating currentPlayer.
   const handleMove = useCallback((col: number) => {
     if (gameResult.winner || isComputing || !isValidMove(board, col)) return;
 
@@ -49,16 +42,15 @@ export default function App() {
     }
   }, [board, gameResult.winner, isComputing]);
 
-  /**
-   * Effect Hook: AI Agent Logic
-   * Monitors 'currentPlayer' and executes Minimax search when it's the AI's turn.
-   */
+  // Watch for the AI's turn and trigger the search. The 600 ms delay is
+  // intentional — without it the UI update from the human move hasn't
+  // painted yet and the AI response feels instantaneous and jarring.
   useEffect(() => {
     if (currentPlayer === Player.AI && !gameResult.winner) {
-      // Artificial delay to simulate processing time and improve UX
       const timer = setTimeout(() => {
-        const [bestCol] = minimax(board, difficulty, -Infinity, Infinity, true);
-        
+        const { col: bestCol, depthReached, ttSize } = getBestMove(board, difficulty);
+        setLastStats({ depthReached, ttSize });
+
         if (bestCol !== null) {
           const row = getNextOpenRow(board, bestCol);
           const newBoard = dropPiece(board, row, bestCol, Player.AI);
@@ -72,15 +64,15 @@ export default function App() {
           }
         }
         setIsComputing(false);
-      }, 600); 
-      
+      }, 600);
+
       return () => clearTimeout(timer);
     }
   }, [currentPlayer, board, difficulty, gameResult.winner]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-red-500/30">
-      {/* Navigation & Control Bar */}
+      {/* Top bar — title, info toggle, and reset button */}
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -89,9 +81,9 @@ export default function App() {
             </div>
             <h1 className="text-xl font-semibold tracking-tight">Connect Four AI Agent</h1>
           </div>
-          
+
           <div className="flex items-center gap-4">
-            <button 
+            <button
               onClick={() => setShowProjectDetails(!showProjectDetails)}
               className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-zinc-100"
             >
@@ -109,14 +101,16 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-12 grid lg:grid-cols-[1fr_320px] gap-12">
-        {/* Game Implementation Section */}
+        {/* Left side: turn indicator + game board */}
         <section className="flex flex-col items-center gap-8">
           <div className="w-full flex justify-between items-center mb-4">
+            {/* Human player indicator — glows when it's their turn */}
             <div className={`flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${currentPlayer === Player.HUMAN ? 'bg-red-500/10 ring-1 ring-red-500/50' : 'opacity-40'}`}>
               <User size={20} className="text-red-500" />
               <span className="font-medium">User (Human)</span>
             </div>
-            
+
+            {/* Center status: shows the game phase or the result */}
             <div className="flex flex-col items-center">
               {isComputing ? (
                 <div className="flex items-center gap-2 text-zinc-400 text-sm animate-pulse">
@@ -124,7 +118,7 @@ export default function App() {
                   Agent is computing...
                 </div>
               ) : gameResult.winner ? (
-                <motion.div 
+                <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   className="flex items-center gap-2 text-yellow-500 font-bold"
@@ -139,22 +133,24 @@ export default function App() {
               )}
             </div>
 
+            {/* AI player indicator — glows when it's computing */}
             <div className={`flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${currentPlayer === Player.AI ? 'bg-yellow-500/10 ring-1 ring-yellow-500/50' : 'opacity-40'}`}>
               <Cpu size={20} className="text-yellow-500" />
               <span className="font-medium">AI Agent (Minimax)</span>
             </div>
           </div>
 
-          <Board 
-            board={board} 
-            onColumnClick={handleMove} 
+          <Board
+            board={board}
+            onColumnClick={handleMove}
             winningCells={gameResult.winningCells}
             disabled={currentPlayer === Player.AI || !!gameResult.winner}
           />
         </section>
 
-        {/* Algorithm Configuration Sidebar */}
+        {/* Right sidebar: algorithm settings and live search stats */}
         <aside className="space-y-8">
+          {/* Depth slider — controls the maximum depth for iterative deepening */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
             <div className="flex items-center gap-2 text-zinc-400 mb-2">
               <Settings2 size={18} />
@@ -163,33 +159,65 @@ export default function App() {
 
             <div className="space-y-4">
               <label className="block">
-                <span className="text-sm text-zinc-400 block mb-2">Tree Search Depth</span>
-                <input 
-                  type="range" 
-                  min="2" 
-                  max="6" 
-                  value={difficulty} 
+                <span className="text-sm text-zinc-400 block mb-2">Max Search Depth</span>
+                <input
+                  type="range"
+                  min="2"
+                  max="6"
+                  value={difficulty}
                   onChange={(e) => setDifficulty(parseInt(e.target.value))}
                   className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-red-500"
                 />
                 <div className="flex justify-between text-xs text-zinc-500 mt-2">
-                  <span>Linear (2)</span>
+                  <span>Easy (2)</span>
                   <span className="text-red-500 font-bold">{difficulty}</span>
-                  <span>Deep (6)</span>
+                  <span>Hard (6)</span>
                 </div>
               </label>
 
               <div className="pt-4 border-t border-zinc-800">
                 <p className="text-xs text-zinc-500 leading-relaxed">
-                  The depth parameter controls the recursive limit of the Minimax search tree. Increasing depth exponentially increases the state-space evaluation.
+                  Sets the maximum depth for Iterative Deepening Search. The agent searches from depth 1 up to this limit, reusing the Transposition Table across iterations so each pass is faster than the last.
                 </p>
               </div>
             </div>
           </div>
 
+          {/* Search stats card — appears after the AI's first move.
+              Useful for seeing how much the TT actually cached. */}
+          <AnimatePresence>
+            {lastStats && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6"
+              >
+                <div className="flex items-center gap-2 text-zinc-400 mb-4">
+                  <Activity size={18} />
+                  <h2 className="text-sm font-semibold uppercase tracking-wider">Last Search Stats</h2>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-zinc-500">Depth Reached</span>
+                    <span className="text-sm font-mono font-medium text-red-400">
+                      {lastStats.depthReached} / {difficulty}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-zinc-500">TT States Cached</span>
+                    <span className="text-sm font-mono font-medium text-yellow-400">
+                      {lastStats.ttSize.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Academic context panel — shown when the info button is pressed */}
           <AnimatePresence>
             {showProjectDetails && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
