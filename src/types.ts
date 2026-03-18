@@ -1,29 +1,21 @@
-/**
- * Player Enumeration
- * Defines the participants in the zero-sum game environment.
- */
+// Who's who on the board. NONE = empty cell, HUMAN = red, AI = yellow.
 export enum Player {
-  NONE = 0,   // Empty cell
-  HUMAN = 1,  // Human player (Maximizing/Minimizing based on perspective)
-  AI = 2,     // AI Agent (Minimax-driven)
+  NONE = 0,
+  HUMAN = 1,
+  AI = 2,
 }
 
-/**
- * Type alias for the game board representation.
- * 2D Matrix where each element is a Player state.
- */
+// The board is just a 2D array of Player values. Each cell either
+// belongs to a player or is empty.
 export type BoardState = Player[][];
 
-/**
- * Board Dimensions - Connect Four Standard (6 rows x 7 columns)
- */
+// Standard Connect Four dimensions — 6 rows, 7 columns.
 export const ROWS = 6;
 export const COLS = 7;
 
-/**
- * Interface representing the final state of a game iteration.
- */
+// Returned after every move check. winningCells holds the four coordinates
+// so the UI can highlight them; it's null until someone actually wins.
 export interface GameResult {
   winner: Player | 'DRAW' | null;
-  winningCells: [number, number][] | null; // Coordinates of the winning sequence
+  winningCells: [number, number][] | null;
 }
