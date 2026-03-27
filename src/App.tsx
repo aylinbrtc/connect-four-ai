@@ -71,8 +71,8 @@ export default function App() {
     const delay = gameMode === 'ai-vs-ai' ? 900 : 600;
 
     const timer = setTimeout(() => {
-      const { col: bestCol, depthReached, ttSize, nodesEvaluated } = getBestMove(board, currentDepth);
-      setLastStats({ depthReached, ttSize, nodesEvaluated });
+      const { col: bestCol, depthReached, ttSize, nodesEvaluated, ttHitRate } = getBestMove(board, currentDepth);
+      setLastStats({ depthReached, ttSize, nodesEvaluated, ttHitRate });
 
       if (bestCol !== null) {
         const row = getNextOpenRow(board, bestCol);
@@ -312,6 +312,12 @@ export default function App() {
                     <span className="text-xs text-zinc-500">TT States Cached</span>
                     <span className="text-sm font-mono font-medium text-yellow-400">
                       {lastStats.ttSize.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-zinc-500">TT Hit Rate</span>
+                    <span className="text-sm font-mono font-medium text-purple-400">
+                      {lastStats.ttHitRate}%
                     </span>
                   </div>
                 </div>
