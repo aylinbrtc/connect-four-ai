@@ -3,7 +3,8 @@ import { Player, BoardState, GameResult } from './types';
 import { createEmptyBoard, isValidMove, getNextOpenRow, dropPiece, checkWin } from './gameLogic';
 import { getBestMove, SearchStats } from './ai';
 import { Board } from './components/Board';
-import { Trophy, RotateCcw, Cpu, User, Settings2, Info, Activity } from 'lucide-react';
+import { BenchmarkPanel } from './components/BenchmarkPanel';
+import { Trophy, RotateCcw, Cpu, User, Settings2, Info, Activity, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Two modes: the usual human-vs-AI, and an AI-vs-AI spectator mode where
@@ -21,6 +22,7 @@ export default function App() {
   const [gameMode, setGameMode] = useState<GameMode>('human-vs-ai');
   const [isComputing, setIsComputing] = useState(false);
   const [showProjectDetails, setShowProjectDetails] = useState(false);
+  const [showBenchmark, setShowBenchmark] = useState(false);
   const [lastStats, setLastStats] = useState<SearchStats | null>(null);
 
   const resetGame = (newMode?: GameMode) => {
@@ -119,6 +121,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowBenchmark(true)}
+              className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-zinc-100"
+              title="Run algorithm benchmark"
+            >
+              <BarChart2 size={20} />
+            </button>
             <button
               onClick={() => setShowProjectDetails(!showProjectDetails)}
               className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-zinc-100"
@@ -338,6 +347,13 @@ export default function App() {
       <footer className="max-w-5xl mx-auto px-6 py-12 border-t border-zinc-900 text-center">
         <p className="text-zinc-600 text-sm">Decision Support Systems Project &copy; 2026</p>
       </footer>
+
+      {/* Benchmark modal — renders on top of everything else */}
+      <AnimatePresence>
+        {showBenchmark && (
+          <BenchmarkPanel onClose={() => setShowBenchmark(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
