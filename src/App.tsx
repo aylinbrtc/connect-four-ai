@@ -6,27 +6,34 @@ import { Board } from './components/Board';
 import { Trophy, RotateCcw, Cpu, User, Settings2, Info, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+// Two modes: the usual human-vs-AI, and an AI-vs-AI spectator mode where
+// two agents at configurable depths play each other. The second mode is
+// useful for comparing depth settings and demonstrating the algorithm's
+// decisiveness at higher depths.
+type GameMode = 'human-vs-ai' | 'ai-vs-ai';
+
 export default function App() {
   const [board, setBoard] = useState<BoardState>(createEmptyBoard());
   const [currentPlayer, setCurrentPlayer] = useState<Player>(Player.HUMAN);
   const [gameResult, setGameResult] = useState<GameResult>({ winner: null, winningCells: null });
-  const [difficulty, setDifficulty] = useState<number>(4); // max search depth for IDS
+  const [difficulty, setDifficulty] = useState<number>(4);    // Yellow AI max depth
+  const [redDepth, setRedDepth] = useState<number>(2);         // Red AI max depth (AI vs AI only)
+  const [gameMode, setGameMode] = useState<GameMode>('human-vs-ai');
   const [isComputing, setIsComputing] = useState(false);
   const [showProjectDetails, setShowProjectDetails] = useState(false);
   const [lastStats, setLastStats] = useState<SearchStats | null>(null);
 
-  // Bring everything back to a clean state without reloading the page.
-  const resetGame = () => {
+  const resetGame = (newMode?: GameMode) => {
     setBoard(createEmptyBoard());
     setCurrentPlayer(Player.HUMAN);
     setGameResult({ winner: null, winningCells: null });
     setIsComputing(false);
+    if (newMode) setGameMode(newMode);
   };
 
-  // Handle the human player's turn. We validate the move, update the board,
-  // check for an immediate win, and if neither player has won yet we hand
-  // control over to the AI by updating currentPlayer.
+  // Human move handler — only active in human-vs-ai mode.
   const handleMove = useCallback((col: number) => {
+    if (gameMode !== 'human-vs-ai') return;
     if (gameResult.winner || isComputing || !isValidMove(board, col)) return;
 
     const row = getNextOpenRow(board, col);
@@ -40,39 +47,68 @@ export default function App() {
       setCurrentPlayer(Player.AI);
       setIsComputing(true);
     }
-  }, [board, gameResult.winner, isComputing]);
+  }, [board, gameResult.winner, isComputing, gameMode]);
 
-  // Watch for the AI's turn and trigger the search. The 600 ms delay is
-  // intentional — without it the UI update from the human move hasn't
-  // painted yet and the AI response feels instantaneous and jarring.
+  // Watch for any computer turn (Player.AI in both modes, and Player.HUMAN
+  // when AI vs AI is active). The 600 ms delay on AI turns and 900 ms
+  // on AI-vs-AI turns are intentional — the UI needs time to paint the
+  // previous move before the next one computes.
   useEffect(() => {
-    if (currentPlayer === Player.AI && !gameResult.winner) {
-      const timer = setTimeout(() => {
-        const { col: bestCol, depthReached, ttSize } = getBestMove(board, difficulty);
-        setLastStats({ depthReached, ttSize });
+    const isAITurn =
+      (currentPlayer === Player.AI ||
+       (gameMode === 'ai-vs-ai' && currentPlayer === Player.HUMAN)) &&
+      !gameResult.winner;
 
-        if (bestCol !== null) {
-          const row = getNextOpenRow(board, bestCol);
-          const newBoard = dropPiece(board, row, bestCol, Player.AI);
-          setBoard(newBoard);
+    if (!isAITurn) return;
 
-          const result = checkWin(newBoard, Player.AI);
-          if (result.winner) {
-            setGameResult(result);
-          } else {
-            setCurrentPlayer(Player.HUMAN);
-          }
+    // In AI-vs-AI both sides need the computing flag set, but no human
+    // click triggered it, so we set it here.
+    if (gameMode === 'ai-vs-ai') setIsComputing(true);
+
+    const currentDepth = currentPlayer === Player.AI ? difficulty : redDepth;
+    const delay = gameMode === 'ai-vs-ai' ? 900 : 600;
+
+    const timer = setTimeout(() => {
+      const { col: bestCol, depthReached, ttSize, nodesEvaluated } = getBestMove(board, currentDepth);
+      setLastStats({ depthReached, ttSize, nodesEvaluated });
+
+      if (bestCol !== null) {
+        const row = getNextOpenRow(board, bestCol);
+        const newBoard = dropPiece(board, row, bestCol, currentPlayer);
+        setBoard(newBoard);
+
+        const result = checkWin(newBoard, currentPlayer);
+        if (result.winner) {
+          setGameResult(result);
+          setIsComputing(false);
+        } else {
+          // In AI vs AI, keep isComputing true — the other agent moves immediately.
+          if (gameMode !== 'ai-vs-ai') setIsComputing(false);
+          setCurrentPlayer(prev => prev === Player.HUMAN ? Player.AI : Player.HUMAN);
         }
+      } else {
         setIsComputing(false);
-      }, 600);
+      }
+    }, delay);
 
-      return () => clearTimeout(timer);
-    }
-  }, [currentPlayer, board, difficulty, gameResult.winner]);
+    return () => clearTimeout(timer);
+  }, [currentPlayer, board, difficulty, redDepth, gameResult.winner, gameMode]);
+
+  // Human label changes when AI vs AI is active
+  const leftLabel  = gameMode === 'ai-vs-ai' ? `Red Agent (d=${redDepth})`    : 'User (Human)';
+  const rightLabel = gameMode === 'ai-vs-ai' ? `Yellow Agent (d=${difficulty})` : 'AI Agent (Minimax)';
+
+  const getWinnerLabel = () => {
+    if (gameResult.winner === 'DRAW') return 'Stalemate (Draw)';
+    if (gameResult.winner === Player.HUMAN)
+      return gameMode === 'ai-vs-ai' ? 'Red Agent Wins' : 'Human Victory';
+    if (gameResult.winner === Player.AI)
+      return gameMode === 'ai-vs-ai' ? 'Yellow Agent Wins' : 'AI Victory';
+    return '';
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-red-500/30">
-      {/* Top bar — title, info toggle, and reset button */}
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -90,32 +126,32 @@ export default function App() {
               <Info size={20} />
             </button>
             <button
-              onClick={resetGame}
+              onClick={() => resetGame()}
               className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-all active:scale-95 text-sm font-medium"
             >
               <RotateCcw size={16} />
-              Reset Game
+              Reset
             </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-12 grid lg:grid-cols-[1fr_320px] gap-12">
-        {/* Left side: turn indicator + game board */}
         <section className="flex flex-col items-center gap-8">
+          {/* Player indicators */}
           <div className="w-full flex justify-between items-center mb-4">
-            {/* Human player indicator — glows when it's their turn */}
             <div className={`flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${currentPlayer === Player.HUMAN ? 'bg-red-500/10 ring-1 ring-red-500/50' : 'opacity-40'}`}>
-              <User size={20} className="text-red-500" />
-              <span className="font-medium">User (Human)</span>
+              {gameMode === 'ai-vs-ai' ? <Cpu size={20} className="text-red-500" /> : <User size={20} className="text-red-500" />}
+              <span className="font-medium">{leftLabel}</span>
             </div>
 
-            {/* Center status: shows the game phase or the result */}
             <div className="flex flex-col items-center">
               {isComputing ? (
                 <div className="flex items-center gap-2 text-zinc-400 text-sm animate-pulse">
                   <Cpu size={16} className="animate-spin" />
-                  Agent is computing...
+                  {gameMode === 'ai-vs-ai'
+                    ? (currentPlayer === Player.HUMAN ? 'Red Agent thinking…' : 'Yellow Agent thinking…')
+                    : 'Agent is computing…'}
                 </div>
               ) : gameResult.winner ? (
                 <motion.div
@@ -124,19 +160,20 @@ export default function App() {
                   className="flex items-center gap-2 text-yellow-500 font-bold"
                 >
                   <Trophy size={20} />
-                  {gameResult.winner === Player.HUMAN ? 'Human Victory' : gameResult.winner === Player.AI ? 'AI Victory' : "Stalemate (Draw)"}
+                  {getWinnerLabel()}
                 </motion.div>
               ) : (
                 <div className="text-zinc-500 text-sm font-medium uppercase tracking-widest">
-                  {currentPlayer === Player.HUMAN ? "Action Required" : "Computing Move"}
+                  {currentPlayer === Player.HUMAN
+                    ? (gameMode === 'ai-vs-ai' ? 'Red Agent\'s turn' : 'Your turn')
+                    : 'Computing Move'}
                 </div>
               )}
             </div>
 
-            {/* AI player indicator — glows when it's computing */}
             <div className={`flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${currentPlayer === Player.AI ? 'bg-yellow-500/10 ring-1 ring-yellow-500/50' : 'opacity-40'}`}>
               <Cpu size={20} className="text-yellow-500" />
-              <span className="font-medium">AI Agent (Minimax)</span>
+              <span className="font-medium">{rightLabel}</span>
             </div>
           </div>
 
@@ -144,47 +181,100 @@ export default function App() {
             board={board}
             onColumnClick={handleMove}
             winningCells={gameResult.winningCells}
-            disabled={currentPlayer === Player.AI || !!gameResult.winner}
+            disabled={
+              gameMode === 'ai-vs-ai' ||
+              currentPlayer === Player.AI ||
+              !!gameResult.winner
+            }
           />
         </section>
 
-        {/* Right sidebar: algorithm settings and live search stats */}
-        <aside className="space-y-8">
-          {/* Depth slider — controls the maximum depth for iterative deepening */}
+        {/* Sidebar */}
+        <aside className="space-y-6">
+          {/* Game mode toggle */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => resetGame('human-vs-ai')}
+                className={`py-2 rounded-lg text-sm font-medium transition-all ${
+                  gameMode === 'human-vs-ai'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-zinc-800 text-zinc-400 hover:text-zinc-100'
+                }`}
+              >
+                Human vs AI
+              </button>
+              <button
+                onClick={() => resetGame('ai-vs-ai')}
+                className={`py-2 rounded-lg text-sm font-medium transition-all ${
+                  gameMode === 'ai-vs-ai'
+                    ? 'bg-yellow-500 text-zinc-900'
+                    : 'bg-zinc-800 text-zinc-400 hover:text-zinc-100'
+                }`}
+              >
+                AI vs AI
+              </button>
+            </div>
+          </div>
+
+          {/* Depth sliders */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
             <div className="flex items-center gap-2 text-zinc-400 mb-2">
               <Settings2 size={18} />
               <h2 className="text-sm font-semibold uppercase tracking-wider">Search Parameters</h2>
             </div>
 
-            <div className="space-y-4">
-              <label className="block">
-                <span className="text-sm text-zinc-400 block mb-2">Max Search Depth</span>
-                <input
-                  type="range"
-                  min="2"
-                  max="6"
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(parseInt(e.target.value))}
-                  className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-red-500"
-                />
-                <div className="flex justify-between text-xs text-zinc-500 mt-2">
-                  <span>Easy (2)</span>
-                  <span className="text-red-500 font-bold">{difficulty}</span>
-                  <span>Hard (6)</span>
-                </div>
-              </label>
-
-              <div className="pt-4 border-t border-zinc-800">
-                <p className="text-xs text-zinc-500 leading-relaxed">
-                  Sets the maximum depth for Iterative Deepening Search. The agent searches from depth 1 up to this limit, reusing the Transposition Table across iterations so each pass is faster than the last.
-                </p>
+            {/* Yellow AI depth — always visible */}
+            <label className="block">
+              <span className="text-sm text-zinc-400 block mb-2">
+                {gameMode === 'ai-vs-ai' ? 'Yellow Agent — Max Depth' : 'AI Max Search Depth'}
+              </span>
+              <input
+                type="range" min="2" max="6" value={difficulty}
+                onChange={(e) => setDifficulty(parseInt(e.target.value))}
+                className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-400"
+              />
+              <div className="flex justify-between text-xs text-zinc-500 mt-2">
+                <span>Easy (2)</span>
+                <span className="text-yellow-400 font-bold">{difficulty}</span>
+                <span>Hard (6)</span>
               </div>
+            </label>
+
+            {/* Red AI depth — only in AI vs AI mode */}
+            <AnimatePresence>
+              {gameMode === 'ai-vs-ai' && (
+                <motion.label
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="block overflow-hidden"
+                >
+                  <span className="text-sm text-zinc-400 block mb-2">Red Agent — Max Depth</span>
+                  <input
+                    type="range" min="2" max="6" value={redDepth}
+                    onChange={(e) => setRedDepth(parseInt(e.target.value))}
+                    className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+                  />
+                  <div className="flex justify-between text-xs text-zinc-500 mt-2">
+                    <span>Easy (2)</span>
+                    <span className="text-red-400 font-bold">{redDepth}</span>
+                    <span>Hard (6)</span>
+                  </div>
+                </motion.label>
+              )}
+            </AnimatePresence>
+
+            <div className="pt-4 border-t border-zinc-800">
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                {gameMode === 'ai-vs-ai'
+                  ? 'Both agents use Iterative Deepening Search with a shared Transposition Table per move. Try different depth combinations to compare strength.'
+                  : 'Iterative Deepening Search from depth 1 up to the limit. The Transposition Table is warmed by shallower passes, so deeper iterations prune more aggressively.'}
+              </p>
             </div>
           </div>
 
-          {/* Search stats card — appears after the AI's first move.
-              Useful for seeing how much the TT actually cached. */}
+          {/* Last search stats — visible after first AI move */}
           <AnimatePresence>
             {lastStats && (
               <motion.div
@@ -204,6 +294,12 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
+                    <span className="text-xs text-zinc-500">Nodes Evaluated</span>
+                    <span className="text-sm font-mono font-medium text-blue-400">
+                      {lastStats.nodesEvaluated.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
                     <span className="text-xs text-zinc-500">TT States Cached</span>
                     <span className="text-sm font-mono font-medium text-yellow-400">
                       {lastStats.ttSize.toLocaleString()}
@@ -214,7 +310,7 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          {/* Academic context panel — shown when the info button is pressed */}
+          {/* Academic context panel */}
           <AnimatePresence>
             {showProjectDetails && (
               <motion.div
@@ -228,9 +324,10 @@ export default function App() {
                   Academic Context
                 </h3>
                 <div className="text-sm text-zinc-400 space-y-3">
-                  <p><strong>Lead Developer:</strong> Aylin BARUTÇU</p>
+                  <p><strong>Developer:</strong> Aylin BARUTÇU — 211101031</p>
                   <p><strong>Department:</strong> TOBB ETÜ Computer Engineering</p>
-                  <p><strong>Implementation:</strong> Zero-sum game theory via Alpha-Beta Pruning.</p>
+                  <p><strong>Course:</strong> YAP 441 / BİL 541 — Decision Support Systems, Spring 2025–26</p>
+                  <p><strong>Algorithm:</strong> Minimax · Alpha-Beta Pruning · Iterative Deepening · Zobrist Hashing · Transposition Table · Fork Detection</p>
                 </div>
               </motion.div>
             )}
@@ -239,9 +336,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-5xl mx-auto px-6 py-12 border-t border-zinc-900 text-center">
-        <p className="text-zinc-600 text-sm">
-          Decision Support Systems Project &copy; 2026
-        </p>
+        <p className="text-zinc-600 text-sm">Decision Support Systems Project &copy; 2026</p>
       </footer>
     </div>
   );
