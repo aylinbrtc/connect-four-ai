@@ -1,6 +1,6 @@
 # connect-four-ai
 
-A browser-based Connect Four game where you play against an AI powered by the Minimax algorithm with Alpha-Beta pruning. Built as a Decision Support Systems project at TOBB ETÜ Computer Engineering.
+A browser-based Connect Four game where you play against an AI powered by the Minimax algorithm with Alpha-Beta pruning.
 
 ---
 
@@ -61,6 +61,3 @@ src/
 
 ---
 
-**Developer:** Aylin BARUTÇU — 211101031
-**Department:** TOBB ETÜ Computer Engineering
-**Course:** YAP 441 / BİL 541 — Decision Support Systems, Spring 2025–26
